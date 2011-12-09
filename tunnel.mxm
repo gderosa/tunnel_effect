@@ -1,0 +1,162 @@
+/* A symbolic+numeric simulation of the tunnel quantum effect */
+/* Copyright (C) 2007 Guido De Rosa */
+/* Thanks to Mariano Barbieri for ideas */
+
+globalsolve : true;
+assume(E>0);
+assume(m>0);
+assume(E<V);
+
+/* general solutions for potential barrier */
+psi1(x) := exp(%i*x*sqrt(2*m*E)/hbar) + A2*exp(-%i*x*sqrt(2*m*E)/hbar);
+psi2(x) := C1*exp(x*sqrt((V-E)*m)/hbar) + C2*exp(-x*sqrt((V-E)*m)/hbar);
+psi3(x) := B1*exp(%i*x*sqrt(2*m*E)/hbar);
+
+/* and their derivatives */
+Dpsi1(x) := diff(psi1(x),x);
+Dpsi2(x) := diff(psi2(x),x);
+Dpsi3(x) := diff(psi3(x),x);
+
+/* regularity condition on wavefunction and derivative */
+reg12 : psi1(x1)=psi2(x1);
+reg23 : psi2(x2)=psi3(x2);
+Dreg12 : Dpsi1(x1)=Dpsi2(x1);
+Dreg23 : Dpsi2(x2)=Dpsi3(x2);
+
+/* Simbolically solve the liner equations in A2,C1,C2,B1*/
+linsolve([reg12,reg23,Dreg12,Dreg23],[A2,C1,C2,B1]);
+
+psi1(x);
+psi2(x);
+psi3(x);
+
+/* time evolution of each eigenfunction */
+Epsi1(x,E,t) := psi1(x)*exp(-%i*E*t/hbar);
+Epsi2(x,E,t) := psi2(x)*exp(-%i*E*t/hbar);
+Epsi3(x,E,t) := psi3(x)*exp(-%i*E*t/hbar);
+
+/* set the parameters of our problem */
+m       : 2; 
+hbar    : 0.1; 
+V       : 1; 
+x1      : 5.0; 
+x2      : 5.1; 
+E0      : 0.5; 
+sigmaE  : 0.1; 
+deltaE  : 1.5 * sigmaE;
+
+/* a generalized 'Fourier Transform' to make a superposition of 
+ * eigenfunctions by integrating f(E)*Epsi[1|2|3](x,E,t) over an interval
+ * from E = E0-deltaE to E = E0+deltaE . A guaussian is a good choice
+ * to obtaina a well localized packet
+ */
+f(E) := exp(-(E-E0)^2/sigmaE^2);
+
+assume(E<V);
+
+/* boundaries for plotting ... */
+x0                : -2; 
+x3                : 10; 
+xstep             : 0.0141;
+epsrel            : 0.2;  /* max relative error for numeric integration 
+                           *(quadpack): in practice, very rarely error
+                           * is more than 5-10%; accuracy is good enough
+                           * and we don't need to slowdown calculation
+                           * any more...
+                           */
+limitq            : 5;    /* max number of subintervals for numeric 
+                           *integration (quadpack) [ignored?] */
+ti                : 1.30; 
+tf                : 14.8; 
+tstep             : 0.03750; 
+Emin              : E0 - deltaE;
+Emax              : E0 + deltaE;
+prefix            : "tunnel-"; /* output filename prefix */
+
+/* For detailed pictures near the barrier, I used these settings instead: */
+/* 
+x0                : 3.0; 
+x3                : 6.5; 
+ti                : 5; 
+tf                : 12; 
+tstep             : 0.007; 
+prefix            : "barrier-"; 
+*/
+
+/* write data to a file... to be read by a Perl script which then prepares
+ * chunks of data and commands for Gnuplot 
+ * TODO: ability to resume from a previously interrupted calculation.
+ * 
+ * Instead, choose filename with a timestamp to avoid accidentally overwitings
+ */
+output_file : sconc(prefix,string(absolute_real_time()),".dat");
+stream: openw(output_file);
+format: "~f ~f ~f ~f~%"; /* float */
+
+for t:ti step tstep thru tf do (
+
+  printf(stream,"~%"),
+  
+  /* The superposition (wavepacket) is constructed  */
+  for x: x0 step xstep thru x1 do (
+    result_re : quad_qags(  /*numerically integrate real... */
+      realpart(f(E)*Epsi1(x,E,t)), 
+      E, 
+      Emin, 
+      Emax,
+      epsrel,
+      limitq
+    ),
+    result_im : quad_qags( /*...and imaginary part*/
+      imagpart(f(E)*Epsi1(x,E,t)), 
+      E, 
+      Emin, 
+      Emax,
+      epsrel,
+      limitq
+    ),  
+    print(x, "= x < x1; t =", t, " results:", result_re, result_im),
+    printf(stream,format,t,x,result_re[1],result_im[1])
+  ),
+  for x: x1 step xstep thru x2 do (
+    result_re : quad_qags(
+      realpart(f(E)*Epsi2(x,E,t)), 
+      E, 
+      Emin, 
+      Emax,
+      epsrel,
+      limitq
+    ),
+    result_im : quad_qags(
+      imagpart(f(E)*Epsi2(x,E,t)), 
+      E, 
+      Emin, 
+      Emax,
+      epsrel,
+      limitq
+    ),
+    print(x, "= x in (x1,x2); t =",t," results:", result_re, result_im),
+    printf(stream,format,t,x,result_re[1],result_im[1])
+  ),
+  for x: x2 step xstep thru x3 do (
+    result_re : quad_qags(
+      realpart(f(E)*Epsi3(x,E,t)), 
+      E, 
+      Emin, 
+      Emax,
+      epsrel,
+      limitq
+    ),
+    result_im : quad_qags(
+      imagpart(f(E)*Epsi3(x,E,t)), 
+      E, 
+      Emin, 
+      Emax,
+      epsrel,
+      limitq
+    ),
+    print(x, " = x > x2; t=",t," results:", result_re, result_im),
+    printf(stream,format,t,x,result_re[1],result_im[1])
+  )
+ 
+); 
